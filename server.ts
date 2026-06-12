@@ -29,6 +29,50 @@ function getGeminiClient(): GoogleGenAI {
   return aiClient;
 }
 
+async function callGeminiWithRetryAndFailover(
+  ai: any,
+  params: {
+    model: string;
+    contents: any;
+    config?: any;
+  },
+  retries = 3,
+  delay = 1000
+): Promise<any> {
+  const isImageModel = params.model.indexOf("image") !== -1;
+  const modelsToTry = isImageModel 
+    ? [params.model] 
+    : [params.model, "gemini-3.1-flash-lite"];
+
+  for (const modelCandidate of modelsToTry) {
+    let currentRetries = retries;
+    let currentDelay = delay;
+    while (currentRetries >= 0) {
+      try {
+        const result = await ai.models.generateContent({
+          ...params,
+          model: modelCandidate,
+        });
+        return result;
+      } catch (error: any) {
+        const errorMsg = error.message || String(error);
+        const isTransient = error.status === 503 || error.statusCode === 503 || error.code === 503 || 
+                            errorMsg.includes("503") || errorMsg.includes("UNAVAILABLE") || errorMsg.includes("high demand") || errorMsg.includes("temporary");
+        if (isTransient && currentRetries > 0) {
+          console.warn(`Gemini transient error on model ${modelCandidate} (${errorMsg}). Retrying in ${currentDelay}ms... (${currentRetries} retries left)`);
+          await new Promise((resolve) => setTimeout(resolve, currentDelay));
+          currentRetries--;
+          currentDelay *= 2;
+        } else {
+          console.warn(`Gemini call failed for model ${modelCandidate}. Error:`, errorMsg);
+          break;
+        }
+      }
+    }
+  }
+  throw new Error("All candidate Gemini models failed after retries.");
+}
+
 async function startServer() {
   const app = express();
   const httpServer = createServer(app);
@@ -324,7 +368,7 @@ async function startServer() {
 
   // Gemini AI endpoints
   app.post("/api/gemini/answer", async (req, res) => {
-    const { prompt, imageBase64, studentContext } = req.body;
+    const { prompt, imageBase64, studentContext, language } = req.body;
     try {
       if (!process.env.GEMINI_API_KEY) {
         throw new Error("API key is missing.");
@@ -340,12 +384,35 @@ async function startServer() {
         });
       }
 
+      let languagePrompt = "";
+      if (language === "Hindi") {
+        languagePrompt = "Please respond entirely in clear, friendly Hindi language (using proper Devanagari script), offering simple student-friendly examples.";
+      } else if (language === "Mixed" || language === "Hinglish") {
+        languagePrompt = "Please respond in Hinglish (a friendly, conversational mix of Hindi and English). Keep academic/scientific vocabulary in English but explain and converse in simple mixed sentences, perfect for an Indian school kid.";
+      } else if (language === "Marathi") {
+        languagePrompt = "Please respond entirely in clear, friendly Marathi language (using proper Devanagari script), offering simple student-friendly examples.";
+      } else if (language === "Tamil") {
+        languagePrompt = "Please respond entirely in clear, friendly Tamil language, offering simple student-friendly examples.";
+      } else if (language === "Bengali") {
+        languagePrompt = "Please respond entirely in clear, friendly Bengali language, offering simple student-friendly examples.";
+      } else if (language === "Spanish") {
+        languagePrompt = "Please respond entirely in Spanish language, customized to be clear and encouraging for a school child.";
+      } else if (language === "French") {
+        languagePrompt = "Please respond entirely in French language, customized to be clear and encouraging for a school child.";
+      } else if (language === "German") {
+        languagePrompt = "Please respond entirely in German language, customized to be clear and encouraging for a school child.";
+      } else if (language === "Japanese") {
+        languagePrompt = "Please respond entirely in Japanese language, customized to be clear and encouraging for a school child.";
+      } else {
+        languagePrompt = "Please respond in English, styled to be simple, friendly and highly clear for a school child.";
+      }
+
       const systemInstruction = studentContext 
-        ? `You are an encouraging, friendly study helper for a child named ${studentContext.name} who studies in class ${studentContext.className} at ${studentContext.school}. Explain concepts clearly using step-by-step solutions suitable for class/grade ${studentContext.className}. Support subjects like Math, Science, Biology, Physics, Chemistry, and English. Keep your tone highly personalized, warm, and highly encouraging, referring to their school or name when it fits naturally.`
-        : "You are a helpful study assistant. Explain concepts clearly and provide step-by-step solutions. Support subjects like Math, Science, Biology, Physics, Chemistry, and English. If the user asks for a diagram or visual explanation, describe it clearly or suggest a visual aid.";
+        ? `You are an encouraging, friendly study helper for a child named ${studentContext.name} who studies in class ${studentContext.className} at ${studentContext.school}. Explain concepts clearly using step-by-step solutions suitable for class/grade ${studentContext.className}. Support subjects like Math, Science, Biology, Physics, Chemistry, and English. Keep your tone highly personalized, warm, and highly encouraging, referring to their school or name when it fits naturally. ${languagePrompt}`
+        : `You are a helpful study assistant. Explain concepts clearly and provide step-by-step solutions. Support subjects like Math, Science, Biology, Physics, Chemistry, and English. If the user asks for a diagram or visual explanation, describe it clearly or suggest a visual aid. ${languagePrompt}`;
 
       const ai = getGeminiClient();
-      const response = await ai.models.generateContent({
+      const response = await callGeminiWithRetryAndFailover(ai, {
         model: "gemini-3.5-flash",
         contents: { parts },
         config: {
@@ -369,7 +436,7 @@ async function startServer() {
       }
       const { prompt } = req.body;
       const ai = getGeminiClient();
-      const response = await ai.models.generateContent({
+      const response = await callGeminiWithRetryAndFailover(ai, {
         model: "gemini-2.5-flash-image",
         contents: [{ text: `Educational diagram or illustration for: ${prompt}. Clear, academic style, labeled if necessary.` }],
         config: {
@@ -403,12 +470,34 @@ async function startServer() {
         throw new Error("API key is missing.");
       }
       const classText = studentContext ? `for class/grade ${studentContext.className}` : "";
-      const instructionText = quizLang === "Hindi" 
-        ? `Generate a 5-question multiple choice quiz ${classText} for ${subject} entirely in Hindi language (using clear Devanagari script suitable for classroom study). All questions, descriptions, and option texts MUST be in clean Hindi. Return only valid JSON in the format: [{"question": "...", "options": ["...", "...", "...", "..."], "answer": 0}]`
-        : `Generate a 5-question multiple choice quiz ${classText} for ${subject} in English. Return only valid JSON in the format: [{"question": "...", "options": ["...", "...", "...", "..."], "answer": 0}]`;
+      
+      let languageInstruct = "";
+      if (quizLang === "Hindi") {
+        languageInstruct = "entirely in Hindi language (using clear Devanagari script suitable for classroom study). All questions, descriptions, and option texts MUST be in clean Hindi.";
+      } else if (quizLang === "Mixed" || quizLang === "Hinglish") {
+        languageInstruct = "in Hinglish (a friendly, everyday mixture of Hindi and English words. Write sentences in standard blended phrasing - e.g. using English terms with Hindi scaffolding, like 'Photosynthesis process kiski presense me hota hai?'). Ensure it reads comfortably and is highly engaging.";
+      } else if (quizLang === "Marathi") {
+        languageInstruct = "entirely in Marathi language (using proper Devanagari script). All questions, descriptions, and option texts MUST be in clean Marathi.";
+      } else if (quizLang === "Tamil") {
+        languageInstruct = "entirely in Tamil language. All questions, descriptions, and option texts MUST be in clean Tamil.";
+      } else if (quizLang === "Bengali") {
+        languageInstruct = "entirely in Bengali language. All questions, descriptions, and option texts MUST be in clean Bengali.";
+      } else if (quizLang === "Spanish") {
+        languageInstruct = "entirely in clean, simple Spanish language suitable for school students.";
+      } else if (quizLang === "French") {
+        languageInstruct = "entirely in clean, simple French language suitable for school students.";
+      } else if (quizLang === "German") {
+        languageInstruct = "entirely in clean, simple German language suitable for school students.";
+      } else if (quizLang === "Japanese") {
+        languageInstruct = "entirely in clean, simple Japanese language suitable for school students.";
+      } else {
+        languageInstruct = "entirely in simple, school-grade English.";
+      }
+
+      const instructionText = `Generate a 5-question multiple choice quiz ${classText} for ${subject} ${languageInstruct} Return only valid JSON in the format: [{"question": "...", "options": ["...", "...", "...", "..."], "answer": 0}]`;
 
       const ai = getGeminiClient();
-      const response = await ai.models.generateContent({
+      const response = await callGeminiWithRetryAndFailover(ai, {
         model: "gemini-3.5-flash",
         contents: instructionText,
         config: {

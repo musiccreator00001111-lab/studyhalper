@@ -21,7 +21,51 @@ function getClientAiInstance() {
   return clientAiInstance;
 }
 
-export async function getStudyAnswer(prompt: string, imageBase64?: string, studentContext?: { name: string; school: string; className: string }) {
+async function callGeminiWithRetryAndFailover(
+  ai: any,
+  params: {
+    model: string;
+    contents: any;
+    config?: any;
+  },
+  retries = 3,
+  delay = 1000
+): Promise<any> {
+  const isImageModel = params.model.indexOf("image") !== -1;
+  const modelsToTry = isImageModel 
+    ? [params.model] 
+    : [params.model, "gemini-3.1-flash-lite"];
+
+  for (const modelCandidate of modelsToTry) {
+    let currentRetries = retries;
+    let currentDelay = delay;
+    while (currentRetries >= 0) {
+      try {
+        const result = await ai.models.generateContent({
+          ...params,
+          model: modelCandidate,
+        });
+        return result;
+      } catch (error: any) {
+        const errorMsg = error.message || String(error);
+        const isTransient = error.status === 503 || error.statusCode === 503 || error.code === 503 || 
+                            errorMsg.includes("503") || errorMsg.includes("UNAVAILABLE") || errorMsg.includes("high demand") || errorMsg.includes("temporary");
+        if (isTransient && currentRetries > 0) {
+          console.warn(`Gemini client transient error on model ${modelCandidate} (${errorMsg}). Retrying in ${currentDelay}ms... (${currentRetries} retries left)`);
+          await new Promise((resolve) => setTimeout(resolve, currentDelay));
+          currentRetries--;
+          currentDelay *= 2;
+        } else {
+          console.warn(`Gemini client call failed for model ${modelCandidate}. Error:`, errorMsg);
+          break;
+        }
+      }
+    }
+  }
+  throw new Error("All candidate Gemini models failed after retries.");
+}
+
+export async function getStudyAnswer(prompt: string, imageBase64?: string, studentContext?: { name: string; school: string; className: string }, language: string = "English") {
   // 1. Try secure backend server route (Primary route)
   try {
     const response = await fetch("/api/gemini/answer", {
@@ -29,7 +73,7 @@ export async function getStudyAnswer(prompt: string, imageBase64?: string, stude
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ prompt, imageBase64, studentContext }),
+      body: JSON.stringify({ prompt, imageBase64, studentContext, language }),
     });
 
     if (response.ok) {
@@ -59,11 +103,30 @@ export async function getStudyAnswer(prompt: string, imageBase64?: string, stude
       });
     }
 
-    const systemInstruction = studentContext 
-      ? `You are an encouraging, friendly study helper for a child named ${studentContext.name} who studies in ${studentContext.className} at ${studentContext.school}. Explain concepts clearly using step-by-step solutions suitable for class/grade ${studentContext.className}. Support subjects like Math, Science, Biology, Physics, Chemistry, and English. Keep your tone highly personalized, warm, and highly encouraging, referring to their school or name when it fits naturally.`
-      : "You are a helpful study assistant. Explain concepts clearly and provide step-by-step solutions. Support subjects like Math, Science, Biology, Physics, Chemistry, and English. If the user asks for a diagram or visual explanation, describe it clearly or suggest a visual aid.";
+    let langInstruction = `Explain everything in English.`;
+    if (language === "Hindi") {
+      langInstruction = `You MUST explain entirely in clean, formal Hindi using Devanagari script. All calculations, steps, text, and encouraging words must be in Devangari Hindi.`;
+    } else if (language === "Hinglish") {
+      langInstruction = `You MUST explain concepts in Hinglish (a friendly mix of simple Hindi and English, written in a warm, conversational tone using Latin or Devanagari characters, e.g., 'Hello! Heart humari body ka ek organ hai jo blood pump karta hai. Iske 4 parts hote hai...'). Speak like a helpful study teammate.`;
+    } else if (language === "Marathi") {
+      langInstruction = `You MUST explain entirely in clear, friendly Marathi language.`;
+    } else if (language === "Tamil") {
+      langInstruction = `You MUST explain entirely in clear, friendly Tamil language.`;
+    } else if (language === "Bengali") {
+      langInstruction = `You MUST explain entirely in clear, friendly Bengali language.`;
+    } else if (language === "Spanish") {
+      langInstruction = `You MUST explain entirely in clear, friendly Spanish language.`;
+    } else if (language === "French") {
+      langInstruction = `You MUST explain entirely in clear, friendly French language.`;
+    } else if (language === "German") {
+      langInstruction = `You MUST explain entirely in clear, friendly German language.`;
+    }
 
-    const response = await ai.models.generateContent({
+    const systemInstruction = studentContext 
+      ? `You are an encouraging, friendly study helper for a child named ${studentContext.name} who studies in ${studentContext.className} at ${studentContext.school}. Explain concepts clearly using step-by-step solutions suitable for class/grade ${studentContext.className}. Support subjects like Math, Science, Biology, Physics, Chemistry, and English. Keep your tone highly personalized, warm, and highly encouraging, referring to their school or name when it fits naturally. ${langInstruction}`
+      : `You are a helpful study assistant. Explain concepts clearly and provide step-by-step solutions. Support subjects like Math, Science, Biology, Physics, Chemistry, and English. If the user asks for a diagram or visual explanation, describe it clearly or suggest a visual aid. ${langInstruction}`;
+
+    const response = await callGeminiWithRetryAndFailover(ai, {
       model: "gemini-3.5-flash",
       contents: { parts },
       config: {
@@ -105,7 +168,7 @@ export async function generateStudyDiagram(prompt: string) {
       throw new Error("Client Gemini API key missing");
     }
     const ai = getClientAiInstance();
-    const response = await ai.models.generateContent({
+    const response = await callGeminiWithRetryAndFailover(ai, {
       model: "gemini-2.5-flash-image",
       contents: [{ text: `Educational diagram or illustration for: ${prompt}. Clear, academic style, labeled if necessary.` }],
       config: {
@@ -158,18 +221,34 @@ export async function generateQuiz(subject: string, studentContext?: { name: str
     }
     const ai = getClientAiInstance();
     const classText = studentContext ? `for grade/class ${studentContext.className}` : "";
-    const instructionText = language === "Hindi"
-      ? `Generate a 5-question multiple choice quiz ${classText} for ${subject} entirely in Hindi language (using clear Devanagari script suitable for classroom study). All questions, descriptions, and option texts MUST be in clean Hindi. Return only valid JSON in the format: [{"question": "...", "options": ["...", "...", "...", "..."], "answer": 0}]`
-      : `Generate a 5-question multiple choice quiz ${classText} for ${subject} in English. Return only valid JSON in the format: [{"question": "...", "options": ["...", "...", "...", "..."], "answer": 0}]`;
+    let langPromptText = `in English`;
+    if (language === "Hindi") {
+      langPromptText = `entirely in Hindi language (using clear Devanagari script suitable for classroom study). All questions, descriptions, and option texts MUST be in clean Hindi.`;
+    } else if (language === "Hinglish") {
+      langPromptText = `in Hinglish language (a casual mix of English and Hindi words written using standard English/Latin alphabet, e.g., 'Soil erosion ko prevent karne ka best way kya hai?'). All questions, descriptions, and option texts MUST be in clean Hinglish sentence structures.`;
+    } else if (language === "Marathi") {
+      langPromptText = `entirely in Marathi language. All questions, descriptions, and option texts MUST be in clean Marathi.`;
+    } else if (language === "Tamil") {
+      langPromptText = `entirely in Tamil language. All questions, descriptions, and option texts MUST be in clean Tamil.`;
+    } else if (language === "Bengali") {
+      langPromptText = `entirely in Bengali language. All questions, descriptions, and option texts MUST be in clean Bengali.`;
+    } else if (language === "Spanish") {
+      langPromptText = `entirely in Spanish language. All questions, descriptions, and option texts MUST be in clean Spanish.`;
+    } else if (language === "French") {
+      langPromptText = `entirely in French language. All questions, descriptions, and option texts MUST be in clean French.`;
+    } else if (language === "German") {
+      langPromptText = `entirely in German language. All questions, descriptions, and option texts MUST be in clean German.`;
+    }
 
-    const model = ai.models.generateContent({
+    const instructionText = `Generate a 5-question multiple choice quiz ${classText} for ${subject} ${langPromptText}. Return only valid JSON in the format: [{"question": "...", "options": ["...", "...", "...", "..."], "answer": 0}]`;
+
+    const response = await callGeminiWithRetryAndFailover(ai, {
       model: "gemini-3.5-flash",
       contents: instructionText,
       config: {
         responseMimeType: "application/json",
       },
     });
-    const response = await model;
     try {
       const parsed = JSON.parse(response.text || "[]");
       if (Array.isArray(parsed) && parsed.length > 0) {
