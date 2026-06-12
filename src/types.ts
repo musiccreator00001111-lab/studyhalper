@@ -3,6 +3,8 @@ export type Subject = 'Mathematics' | 'Science' | 'Biology' | 'Physics' | 'Chemi
 export interface User {
   id: number;
   name: string;
+  school: string;
+  className: string;
   points: number;
   level: number;
   avatar?: string;

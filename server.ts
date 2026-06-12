@@ -6,6 +6,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
+import { FALLBACK_QUIZZES, getFallbackAnswer } from "./src/services/fallbackData";
 
 dotenv.config();
 
@@ -323,8 +324,11 @@ async function startServer() {
 
   // Gemini AI endpoints
   app.post("/api/gemini/answer", async (req, res) => {
+    const { prompt, imageBase64, studentContext } = req.body;
     try {
-      const { prompt, imageBase64 } = req.body;
+      if (!process.env.GEMINI_API_KEY) {
+        throw new Error("API key is missing.");
+      }
       const parts: any[] = [{ text: prompt }];
       
       if (imageBase64) {
@@ -336,24 +340,33 @@ async function startServer() {
         });
       }
 
+      const systemInstruction = studentContext 
+        ? `You are an encouraging, friendly study helper for a child named ${studentContext.name} who studies in class ${studentContext.className} at ${studentContext.school}. Explain concepts clearly using step-by-step solutions suitable for class/grade ${studentContext.className}. Support subjects like Math, Science, Biology, Physics, Chemistry, and English. Keep your tone highly personalized, warm, and highly encouraging, referring to their school or name when it fits naturally.`
+        : "You are a helpful study assistant. Explain concepts clearly and provide step-by-step solutions. Support subjects like Math, Science, Biology, Physics, Chemistry, and English. If the user asks for a diagram or visual explanation, describe it clearly or suggest a visual aid.";
+
       const ai = getGeminiClient();
       const response = await ai.models.generateContent({
         model: "gemini-3.5-flash",
         contents: { parts },
         config: {
-          systemInstruction: "You are a helpful study assistant. Explain concepts clearly and provide step-by-step solutions. Support subjects like Math, Science, Biology, Physics, Chemistry, and English. If the user asks for a diagram or visual explanation, describe it clearly or suggest a visual aid.",
+          systemInstruction: systemInstruction,
         }
       });
       
       res.json({ text: response.text });
     } catch (err: any) {
-      console.error("Gemini answer error:", err);
-      res.status(500).json({ error: err.message || "Failed to generate AI answer" });
+      console.warn("Gemini answer error (using offline fallback):", err.message || err);
+      // Return high-quality localized study fallback content instead of failing with 500
+      const fallbackText = getFallbackAnswer(prompt, studentContext);
+      res.json({ text: fallbackText });
     }
   });
 
   app.post("/api/gemini/diagram", async (req, res) => {
     try {
+      if (!process.env.GEMINI_API_KEY) {
+        throw new Error("API key is missing.");
+      }
       const { prompt } = req.body;
       const ai = getGeminiClient();
       const response = await ai.models.generateContent({
@@ -377,18 +390,27 @@ async function startServer() {
       }
       res.json({ imageUrl });
     } catch (err: any) {
-      console.error("Gemini diagram error:", err);
-      res.status(500).json({ error: err.message || "Failed to generate diagram" });
+      console.warn("Gemini diagram error (returning null gracefully):", err.message || err);
+      res.json({ imageUrl: null });
     }
   });
 
   app.post("/api/gemini/quiz", async (req, res) => {
+    const { subject, studentContext, language } = req.body;
+    const quizLang = language || "English";
     try {
-      const { subject } = req.body;
+      if (!process.env.GEMINI_API_KEY) {
+        throw new Error("API key is missing.");
+      }
+      const classText = studentContext ? `for class/grade ${studentContext.className}` : "";
+      const instructionText = quizLang === "Hindi" 
+        ? `Generate a 5-question multiple choice quiz ${classText} for ${subject} entirely in Hindi language (using clear Devanagari script suitable for classroom study). All questions, descriptions, and option texts MUST be in clean Hindi. Return only valid JSON in the format: [{"question": "...", "options": ["...", "...", "...", "..."], "answer": 0}]`
+        : `Generate a 5-question multiple choice quiz ${classText} for ${subject} in English. Return only valid JSON in the format: [{"question": "...", "options": ["...", "...", "...", "..."], "answer": 0}]`;
+
       const ai = getGeminiClient();
       const response = await ai.models.generateContent({
         model: "gemini-3.5-flash",
-        contents: `Generate a 5-question multiple choice quiz for ${subject}. Return only valid JSON in the format: [{"question": "...", "options": ["...", "...", "...", "..."], "answer": 0}]`,
+        contents: instructionText,
         config: {
           responseMimeType: "application/json"
         }
@@ -400,10 +422,17 @@ async function startServer() {
       } catch (parseErr) {
         console.error("Quiz JSON parse error:", parseErr, "Text:", response.text);
       }
-      res.json(quizData);
+      
+      if (Array.isArray(quizData) && quizData.length > 0) {
+        res.json(quizData);
+      } else {
+        throw new Error("Invalid or empty response format received from upstream API model");
+      }
     } catch (err: any) {
-      console.error("Gemini quiz error:", err);
-      res.status(500).json({ error: err.message || "Failed to generate quiz" });
+      console.warn("Gemini quiz error (using high-quality localized fallback database):", err.message || err);
+      const languageKey = (quizLang === "Hindi" ? "Hindi" : "English") as "Hindi" | "English";
+      const fallbackSet = FALLBACK_QUIZZES[subject]?.[languageKey] || FALLBACK_QUIZZES[subject]?.["English"] || [];
+      res.json(fallbackSet);
     }
   });
 
