@@ -1148,9 +1148,9 @@ export default function App() {
             {/* Header/Brand Icon */}
             <div className="text-center space-y-2">
               <div className="w-16 h-16 bg-gradient-to-tr from-indigo-600 to-violet-600 rounded-2xl flex items-center justify-center mx-auto shadow-xl shadow-indigo-200">
-                <GraduationCap className="w-9 h-9 text-white animate-pulse" />
+                <BookOpen className="w-9 h-9 text-white animate-pulse" />
               </div>
-              <h2 className="text-3xl font-black text-slate-900 tracking-tight mt-4 font-display">StudyBuddy AI</h2>
+              <h2 className="text-3xl font-black text-slate-900 tracking-tight mt-4 font-display">Ascend Study</h2>
               <p className="text-[10px] text-indigo-600 font-extrabold tracking-widest uppercase font-mono bg-indigo-50 px-3 py-1 rounded-full inline-block">{translate('onboarding_tagline', appLanguage, 'Your Personal AI Study Companion')}</p>
             </div>
 
@@ -1161,7 +1161,7 @@ export default function App() {
                 <h3 className="font-extrabold text-slate-900 text-sm font-display">{translate('onboarding_welcome_title', appLanguage, 'A Message for Students 🌟')}</h3>
               </div>
               <p className="text-xs text-slate-700 leading-relaxed font-semibold">
-                {translate('onboarding_welcome_desc', appLanguage, 'Welcome to StudyBuddy AI! This is your cute AI friend to make your school learning easy and fun. Here you can understand tough subjects in simple words with pictures, and play quiz games live.')}
+                {translate('onboarding_welcome_desc', appLanguage, 'Welcome to Ascend Study! This is your cute AI friend to make your school learning easy and fun. Here you can understand tough subjects in simple words with pictures, and play quiz games live.')}
               </p>
               <p className="text-xs text-indigo-700 font-bold leading-relaxed bg-indigo-100/40 p-3 rounded-2xl border border-indigo-200/20">
                 {translate('onboarding_welcome_notice', appLanguage, 'To start, fill in your details below! Let\'s get started! 🚀')}

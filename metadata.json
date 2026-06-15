@@ -1,5 +1,5 @@
 {
-  "name": "StudyBuddy AI",
+  "name": "Ascend Study",
   "description": "A modern AI-powered study assistant for students to solve homework, take notes, and plan studies.",
   "requestFramePermissions": ["microphone", "camera"],
   "majorCapabilities": [
