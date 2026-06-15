@@ -540,6 +540,17 @@ export const TRANSLATIONS: Record<string, Record<AppLanguage, string>> = {
     Spanish: '¡Hola campeón! 👋 Hazme cualquier pregunta de tu tarea o pídeme que dibuje un diagrama. ¡Estudiemos juntos! 🚀',
     French: 'Bonjour jeune champion ! 👋 Pose-moi tes questions de devoirs ou demande-moi un schéma. Étudions ensemble ! 🚀',
     German: 'Hallo Schul-Champ! 👋 Stelle mir Fragen zu den Hausaufgaben oder bitte mich, ein Diagramm zu zeichnen. Lass uns kooperativ lernen! 🚀'
+  },
+  'install_app': {
+    English: 'Install App',
+    Hindi: 'ऐप इंस्टॉल करें',
+    Hinglish: 'App Install Karein',
+    Marathi: 'अॅप इंस्टॉल करा',
+    Tamil: 'செயலியை நிறுவவும்',
+    Bengali: 'অ্যাপ ইনস্টল করুন',
+    Spanish: 'Instalar aplicación',
+    French: 'Installer l\'application',
+    German: 'App installieren'
   }
 };
 

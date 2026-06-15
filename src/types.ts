@@ -9,6 +9,8 @@ export interface User {
   level: number;
   avatar?: string;
   badges: Badge[];
+  weeklyGoal?: number;
+  completedThisWeek?: number;
 }
 
 export interface Badge {
