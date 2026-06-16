@@ -17,7 +17,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
       - name: Install Dependencies
         run: npm ci
@@ -28,22 +27,24 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
+      # 🛠️ बदलाव 1: Java 17 को Java 21 पर अपग्रेड किया, जो इस नए bcprov जार फाइल एरर को पूरी तरह सपोर्ट करता है
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
 
+      # 🛠️ बदलाव 2: Gradle को भी लेटेस्ट 8.7 पर डाल दिया ताकि पुराना कैशे वाला झंझट ही खत्म हो जाए
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: 8.2
+          gradle-version: 8.7
 
-      # 🔥 यही वो जादुई बदलाव है जो 100% सक्सेस देगा!
+      # 🛠️ बदलाव 3: कैशे की वजह से फाइल लॉक न हो, इसलिए --no-daemon मोड में फ्रेश बिल्ड चलाया
       - name: Build Android APK
         run: |
           cd android
-          gradle assembleDebug
+          gradle assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
