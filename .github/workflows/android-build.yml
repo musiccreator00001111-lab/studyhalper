@@ -33,20 +33,25 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      # 🛠️ बदलाव: यहाँ वर्ज़न को 8.7 से बढ़ाकर 8.13 कर दिया है
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: 8.13
 
+      - name: Clean Gradle Cache
+        run: |
+          cd android
+          rm -rf .gradle
+          rm -rf build
+          rm -rf app/build
+
       - name: Build Android APK
         run: |
           cd android
-          gradle assembleDebug --no-daemon
+          gradle assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
-
